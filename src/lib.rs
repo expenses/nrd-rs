@@ -8,17 +8,22 @@ use autocxx::prelude::*;
 include_cpp! {
     #include "wrapper.hpp"
     safety!(unsafe_ffi)
-    generate_pod!("NrdQueueFamilyDesc")
+    generate_pod!("nri::QueueFamilyVKDesc")
+    generate_pod!("nri::VKBindingOffsets")
     generate!("nrdCreateDeviceVK")
     generate!("nrdDestroyDevice")
     generate!("nrdResourceSnapshotSetResource")
     generate!("nrdResourceSnapshotGetFinalState")
     generate!("nrd::Integration")
     generate!("nrd::ResourceSnapshot")
+    generate!("nrd::Denoiser")
     generate_pod!("nrd::DenoiserDesc")
     generate_pod!("nrd::CommonSettings")
     generate_pod!("nrd::IntegrationCreationDesc")
     generate!("nri::QueueType")
+    generate!("nri::AccessBits")
+    generate!("nri::Layout")
+    generate!("nri::StageBits")
     generate_pod!("nrd::ReblurHitDistanceParameters")
     generate_pod!("nrd::ReblurAntilagSettings")
     generate_pod!("nrd::ReblurResponsiveAccumulationSettings")
@@ -37,7 +42,6 @@ include_cpp! {
     generate_pod!("NrdCommandBufferVKDesc")
     generate!("nrdCreateCommandBufferVK")
     generate!("nrdDestroyCommandBuffer")
-    generate!("nrdConstructIntegration")
     generate!("nrdDefaultCommonSettings")
     generate!("nrdDefaultRelaxSettings")
     generate!("nrdDefaultIntegrationCreationDesc")
@@ -48,19 +52,30 @@ pub mod ffi {
     pub use crate::generated::*;
 }
 
+/// Wraps an `nri::Device`. NRI devices are thread-safe.
+///
+/// Must outlive all `Texture`, `CommandBuffer`, and `Integration` instances
+/// created from it.
 pub struct Device {
     inner: *mut ffi::nri::Device,
 }
 
 impl Device {
+    /// Creates an NRI device wrapping existing Vulkan handles.
+    ///
+    /// # Safety
+    /// - `vk_instance`, `vk_physical_device`, `vk_device` must be valid Vulkan handles.
+    /// - `queue_families` must describe valid queue families.
+    /// - The returned `Device` must not outlive the Vulkan handles.
     pub unsafe fn create_vk(
         vk_instance: u64,
         vk_physical_device: u64,
         vk_device: u64,
-        queue_families: &[ffi::NrdQueueFamilyDesc],
+        queue_families: &[ffi::nri::QueueFamilyVKDesc],
         enable_nri_validation: bool,
         minor_version: u32,
         device_extensions: &[*const i8],
+        binding_offsets: Option<&ffi::nri::VKBindingOffsets>,
     ) -> Option<Self> {
         let ptr = ffi::nrdCreateDeviceVK(
             vk_instance,
@@ -72,6 +87,7 @@ impl Device {
             minor_version,
             device_extensions.as_ptr() as *mut autocxx::c_void,
             device_extensions.len() as u32,
+            binding_offsets.map_or(std::ptr::null(), |b| b),
         );
         if ptr.is_null() {
             None
@@ -79,7 +95,14 @@ impl Device {
             Some(Self { inner: ptr })
         }
     }
+
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::nri::Device {
+        self.inner
+    }
 }
+
+unsafe impl Send for Device {}
+unsafe impl Sync for Device {}
 
 impl Drop for Device {
     fn drop(&mut self) {
@@ -89,6 +112,10 @@ impl Drop for Device {
     }
 }
 
+/// An NRI texture wrapping a Vulkan image.
+///
+/// # Safety
+/// Must not outlive the `Device` it was created from.
 pub struct Texture {
     inner: *mut ffi::nri::Texture,
     device: *mut ffi::nri::Device,
@@ -112,6 +139,9 @@ impl Texture {
     }
 }
 
+unsafe impl Send for Texture {}
+unsafe impl Sync for Texture {}
+
 impl Drop for Texture {
     fn drop(&mut self) {
         if !self.inner.is_null() {
@@ -120,6 +150,10 @@ impl Drop for Texture {
     }
 }
 
+/// An NRI command buffer wrapping a Vulkan command buffer.
+///
+/// # Safety
+/// Must not outlive the `Device` it was created from.
 pub struct CommandBuffer {
     inner: *mut ffi::nri::CommandBuffer,
     device: *mut ffi::nri::Device,
@@ -150,6 +184,9 @@ impl CommandBuffer {
     }
 }
 
+unsafe impl Send for CommandBuffer {}
+unsafe impl Sync for CommandBuffer {}
+
 impl Drop for CommandBuffer {
     fn drop(&mut self) {
         if !self.inner.is_null() {
@@ -158,6 +195,7 @@ impl Drop for CommandBuffer {
     }
 }
 
+/// A snapshot of NRD resource state at a given moment.
 pub struct ResourceSnapshot {
     inner: cxx::UniquePtr<ffi::nrd::ResourceSnapshot>,
 }
@@ -169,6 +207,10 @@ impl ResourceSnapshot {
         }
     }
 
+    /// Associates a texture with a resource slot inside the snapshot.
+    ///
+    /// # Safety
+    /// The caller must ensure `texture` outlives all uses of this snapshot.
     pub fn set_resource(
         &mut self,
         resource_type: ffi::nrd::ResourceType,
@@ -189,20 +231,23 @@ impl ResourceSnapshot {
         }
     }
 
+    /// Returns the final resource state after a denoiser pass.
     pub fn get_final_state(
         &mut self,
         resource_type: ffi::nrd::ResourceType,
-    ) -> Option<(u32, u32, u32)> {
-        let mut out_access: u32 = 0;
-        let mut out_layout: u32 = 0;
-        let mut out_stages: u32 = 0;
-        let success = ffi::nrdResourceSnapshotGetFinalState(
-            self.inner.pin_mut(),
-            resource_type,
-            std::pin::Pin::new(&mut out_access),
-            std::pin::Pin::new(&mut out_layout),
-            std::pin::Pin::new(&mut out_stages),
-        );
+    ) -> Option<(ffi::nri::AccessBits, ffi::nri::Layout, ffi::nri::StageBits)> {
+        let mut out_access = ffi::nri::AccessBits::NONE;
+        let mut out_layout = ffi::nri::Layout::UNDEFINED;
+        let mut out_stages = ffi::nri::StageBits::ALL;
+        let success = unsafe {
+            ffi::nrdResourceSnapshotGetFinalState(
+                self.inner.pin_mut(),
+                resource_type,
+                std::pin::Pin::new(&mut out_access),
+                std::pin::Pin::new(&mut out_layout),
+                std::pin::Pin::new(&mut out_stages),
+            )
+        };
         if success {
             Some((out_access, out_layout, out_stages))
         } else {
@@ -215,34 +260,40 @@ impl ResourceSnapshot {
     }
 }
 
+/// The main NRD integration instance.
+///
+/// Manages denoiser pipelines, resources, and dispatch.
 pub struct Integration {
     inner: cxx::UniquePtr<ffi::nrd::Integration>,
 }
 
 impl Integration {
+    /// Creates a new NRD integration instance.
+    ///
+    /// Returns `None` if initialization fails (e.g. invalid device or denoiser desc).
     pub fn new(
         integration_desc: &ffi::nrd::IntegrationCreationDesc,
         denoisers: &[ffi::nrd::DenoiserDesc],
         device: &mut Device,
     ) -> Option<Self> {
-        let mut inner = ffi::nrd::Integration::new().within_unique_ptr();
-        unsafe { ffi::nrdConstructIntegration(&mut *inner) };
-        let success = unsafe {
-            ffi::nrdIntegrationRecreate(
-                &mut *inner,
-                integration_desc,
-                denoisers.as_ptr(),
-                denoisers.len() as u32,
-                device.inner,
-            )
-        };
-        if success { Some(Self { inner }) } else { None }
+        let inner = ffi::nrd::Integration::new().within_unique_ptr();
+        let mut integration = Self { inner };
+        if unsafe { integration.recreate(integration_desc, denoisers, device) } {
+            Some(integration)
+        } else {
+            None
+        }
     }
 
     pub fn new_frame(&mut self) {
         self.inner.pin_mut().NewFrame()
     }
 
+    /// Runs denoising for the specified denoisers.
+    ///
+    /// # Safety
+    /// - `command_buffer` must be in a state suitable for recording.
+    /// - `resource_snapshot` must contain all resources required by the denoisers.
     pub unsafe fn denoise(
         &mut self,
         denoisers: &[u32],
@@ -285,12 +336,60 @@ impl Integration {
         unsafe { ffi::nrdIntegrationSetCommonSettings(&mut *self.inner, common_settings) }
     }
 
-    pub unsafe fn set_denoiser_settings(
+    pub fn set_reblur_settings(
         &mut self,
-        denoiser: u32,
-        denoiser_settings: *const autocxx::c_void,
+        denoiser: ffi::nrd::Denoiser,
+        settings: &ffi::nrd::ReblurSettings,
     ) -> bool {
-        ffi::nrdIntegrationSetDenoiserSettings(&mut *self.inner, denoiser, denoiser_settings)
+        unsafe {
+            ffi::nrdIntegrationSetDenoiserSettings(
+                &mut *self.inner,
+                denoiser as u32,
+                settings as *const _ as *const autocxx::c_void,
+            )
+        }
+    }
+
+    pub fn set_relax_settings(
+        &mut self,
+        denoiser: ffi::nrd::Denoiser,
+        settings: &ffi::nrd::RelaxSettings,
+    ) -> bool {
+        unsafe {
+            ffi::nrdIntegrationSetDenoiserSettings(
+                &mut *self.inner,
+                denoiser as u32,
+                settings as *const _ as *const autocxx::c_void,
+            )
+        }
+    }
+
+    pub fn set_sigma_settings(
+        &mut self,
+        denoiser: ffi::nrd::Denoiser,
+        settings: &ffi::nrd::SigmaSettings,
+    ) -> bool {
+        unsafe {
+            ffi::nrdIntegrationSetDenoiserSettings(
+                &mut *self.inner,
+                denoiser as u32,
+                settings as *const _ as *const autocxx::c_void,
+            )
+        }
+    }
+
+    pub fn set_reference_settings(
+        &mut self,
+        denoiser: ffi::nrd::Denoiser,
+        settings: &ffi::nrd::ReferenceSettings,
+    ) -> bool {
+        unsafe {
+            ffi::nrdIntegrationSetDenoiserSettings(
+                &mut *self.inner,
+                denoiser as u32,
+                settings as *const _ as *const autocxx::c_void,
+            )
+        }
     }
 
     pub unsafe fn recreate(
@@ -315,8 +414,44 @@ impl Default for ffi::nrd::CommonSettings {
     }
 }
 
+impl Default for ffi::nrd::RelaxSettings {
+    fn default() -> Self {
+        ffi::nrdDefaultRelaxSettings()
+    }
+}
+
 impl Default for ffi::nrd::IntegrationCreationDesc {
     fn default() -> Self {
         ffi::nrdDefaultIntegrationCreationDesc()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_types_are_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<Device>();
+        assert_sync::<Device>();
+        assert_send::<Texture>();
+        assert_sync::<Texture>();
+        assert_send::<CommandBuffer>();
+        assert_sync::<CommandBuffer>();
+    }
+
+    #[test]
+    fn test_default_settings() {
+        let _cs = ffi::nrd::CommonSettings::default();
+        let _rs = ffi::nrd::RelaxSettings::default();
+        let _icd = ffi::nrd::IntegrationCreationDesc::default();
+    }
+
+    #[test]
+    fn test_resource_snapshot_new() {
+        let _snap = ResourceSnapshot::new();
     }
 }

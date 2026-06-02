@@ -12,12 +12,13 @@ nri::Device* nrdCreateDeviceVK(
     uint64_t vkInstance,
     uint64_t vkPhysicalDevice,
     uint64_t vkDevice,
-    const NrdQueueFamilyDesc* queueFamilies,
+    const nri::QueueFamilyVKDesc* queueFamilies,
     uint32_t queueFamilyNum,
     bool enableNRIValidation,
     uint32_t minorVersion,
     void* deviceExtensions,
-    uint32_t deviceExtensionNum
+    uint32_t deviceExtensionNum,
+    const nri::VKBindingOffsets* bindingOffsets
 ) {
     nri::Device* device = nullptr;
 
@@ -25,10 +26,13 @@ nri::Device* nrdCreateDeviceVK(
     desc.vkInstance = reinterpret_cast<void*>(vkInstance);
     desc.vkPhysicalDevice = reinterpret_cast<void*>(vkPhysicalDevice);
     desc.vkDevice = reinterpret_cast<void*>(vkDevice);
-    desc.vkBindingOffsets = {0, 1, 2, 3};
+    if (bindingOffsets) {
+        desc.vkBindingOffsets = *bindingOffsets;
+    } else {
+        desc.vkBindingOffsets = {0, 1, 2, 3};
+    }
     desc.queueFamilyNum = queueFamilyNum;
-    desc.queueFamilies =
-        reinterpret_cast<const nri::QueueFamilyVKDesc*>(queueFamilies);
+    desc.queueFamilies = queueFamilies;
     desc.minorVersion = minorVersion;
     desc.enableNRIValidation = enableNRIValidation;
     desc.vkExtensions.deviceExtensions = (const char* const*)deviceExtensions;
@@ -64,16 +68,16 @@ void nrdResourceSnapshotSetResource(
 bool nrdResourceSnapshotGetFinalState(
     nrd::ResourceSnapshot& snapshot,
     nrd::ResourceType resourceType,
-    uint32_t& outAccess,
-    uint32_t& outLayout,
-    uint32_t& outStages
+    nri::AccessBits& outAccess,
+    nri::Layout& outLayout,
+    nri::StageBits& outStages
 ) {
     nrd::Resource* res = snapshot.slots[(size_t)resourceType];
     if (!res)
         return false;
-    outAccess = static_cast<uint32_t>(res->state.access);
-    outLayout = static_cast<uint32_t>(res->state.layout);
-    outStages = static_cast<uint32_t>(res->state.stages);
+    outAccess = res->state.access;
+    outLayout = res->state.layout;
+    outStages = res->state.stages;
     return true;
 }
 
@@ -192,8 +196,4 @@ nrd::RelaxSettings nrdDefaultRelaxSettings() {
 
 nrd::IntegrationCreationDesc nrdDefaultIntegrationCreationDesc() {
     return {};
-}
-
-void nrdConstructIntegration(nrd::Integration* p) {
-    new (p) nrd::Integration();
 }

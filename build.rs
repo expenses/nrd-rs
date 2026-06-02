@@ -38,6 +38,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/wrapper.hpp");
     println!("cargo:rerun-if-changed=src/wrapper.cpp");
     println!("cargo:rerun-if-changed=src/CMakeLists.txt");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_NRD_DEBUG_LOGGING");
 
     let debug_logging = env::var("CARGO_FEATURE_NRD_DEBUG_LOGGING").is_ok();
 
@@ -93,13 +94,27 @@ fn main() {
         }
     }
 
-    let coupons_dir = out_dir.join("build/_deps/shadermake-build");
-    if coupons_dir.join("libShaderMakeBlob.a").exists()
-        || coupons_dir.join("ShaderMakeBlob.lib").exists()
-    {
-        println!("cargo:rustc-link-search=native={}", coupons_dir.display());
+    // Search for ShaderMakeBlob (cmake FetchContent location varies by version)
+    if let Some(dir) = find_lib(&out_dir.join("build"), "libShaderMakeBlob.a") {
+        println!("cargo:rustc-link-search=native={}", dir.display());
         println!("cargo:rustc-link-lib=static=ShaderMakeBlob");
     }
+}
+
+fn find_lib(dir: &std::path::Path, target: &str) -> Option<PathBuf> {
+    if dir.join(target).exists() {
+        return Some(dir.to_path_buf());
+    }
+    for entry in std::fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_lib(&path, target) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 fn build_nrd() -> PathBuf {

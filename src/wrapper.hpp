@@ -5,28 +5,23 @@
 
 #include "NRD.h"
 #include "NRI.h"
-#define NRI_HELPER_H
+#include "Extensions/NRIHelper.h"
 #include "Extensions/NRIRayTracing.h"
 #include "Extensions/NRIWrapperVK.h"
 #include "NRDIntegration.h"
 #include "NRDSettings.h"
 
-struct NrdQueueFamilyDesc {
-    uint32_t queueNum;
-    nri::QueueType queueType;
-    uint32_t familyIndex;
-};
-
 nri::Device* nrdCreateDeviceVK(
     uint64_t vkInstance,
     uint64_t vkPhysicalDevice,
     uint64_t vkDevice,
-    const NrdQueueFamilyDesc* queueFamilies,
+    const nri::QueueFamilyVKDesc* queueFamilies,
     uint32_t queueFamilyNum,
     bool enableNRIValidation,
     uint32_t minorVersion,
     void* deviceExtensions,
-    uint32_t deviceExtensionNum
+    uint32_t deviceExtensionNum,
+    const nri::VKBindingOffsets* bindingOffsets
 );
 
 void nrdDestroyDevice(nri::Device* device);
@@ -43,9 +38,9 @@ void nrdResourceSnapshotSetResource(
 bool nrdResourceSnapshotGetFinalState(
     nrd::ResourceSnapshot& snapshot,
     nrd::ResourceType resourceType,
-    uint32_t& outAccess,
-    uint32_t& outLayout,
-    uint32_t& outStages
+    nri::AccessBits& outAccess,
+    nri::Layout& outLayout,
+    nri::StageBits& outStages
 );
 
 bool nrdIntegrationSetCommonSettings(
@@ -99,8 +94,6 @@ void nrdDestroyCommandBuffer(
     nri::Device* device,
     nri::CommandBuffer* commandBuffer
 );
-
-void nrdConstructIntegration(nrd::Integration* p);
 
 nrd::CommonSettings nrdDefaultCommonSettings();
 nrd::RelaxSettings nrdDefaultRelaxSettings();
