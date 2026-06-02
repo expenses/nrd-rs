@@ -1,0 +1,6 @@
+[submodule "NRD"]
+	path = NRD
+	url = https://github.com/NVIDIA-RTX/NRD
+[submodule "NRI"]
+	path = NRI
+	url = https://github.com/NVIDIA-RTX/NRI
