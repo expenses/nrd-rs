@@ -36,7 +36,7 @@ void nrdResourceSnapshotSetResource(
 );
 
 bool nrdResourceSnapshotGetFinalState(
-    nrd::ResourceSnapshot& snapshot,
+    const nrd::ResourceSnapshot& snapshot,
     nrd::ResourceType resourceType,
     nri::AccessBits& outAccess,
     nri::Layout& outLayout,

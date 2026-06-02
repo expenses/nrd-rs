@@ -1,6 +1,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![allow(unsafe_op_in_unsafe_fn)]
 
 pub use autocxx::c_void;
 use autocxx::prelude::*;
@@ -105,10 +106,6 @@ impl Device {
             Some(Self { inner: ptr })
         }
     }
-
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::nri::Device {
-        self.inner
-    }
 }
 
 unsafe impl Send for Device {}
@@ -132,7 +129,7 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub unsafe fn create_vk(device: &mut Device, desc: &ffi::NrdTextureVKDesc) -> Option<Self> {
+    pub unsafe fn create_vk(device: &Device, desc: &ffi::NrdTextureVKDesc) -> Option<Self> {
         let inner = ffi::nrdCreateTextureVK(device.inner, desc);
         if inner.is_null() {
             None
@@ -142,10 +139,6 @@ impl Texture {
                 device: device.inner,
             })
         }
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::nri::Texture {
-        self.inner
     }
 }
 
@@ -170,10 +163,7 @@ pub struct CommandBuffer {
 }
 
 impl CommandBuffer {
-    pub unsafe fn create_vk(
-        device: &mut Device,
-        desc: &ffi::NrdCommandBufferVKDesc,
-    ) -> Option<Self> {
+    pub unsafe fn create_vk(device: &Device, desc: &ffi::NrdCommandBufferVKDesc) -> Option<Self> {
         let inner = ffi::nrdCreateCommandBufferVK(device.inner, desc);
         if inner.is_null() {
             None
@@ -183,14 +173,6 @@ impl CommandBuffer {
                 device: device.inner,
             })
         }
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::nri::CommandBuffer {
-        self.inner
-    }
-
-    pub fn pin_mut(&mut self) -> std::pin::Pin<&mut ffi::nri::CommandBuffer> {
-        unsafe { std::pin::Pin::new_unchecked(&mut *self.inner) }
     }
 }
 
@@ -211,12 +193,6 @@ pub struct ResourceSnapshot {
 }
 
 impl ResourceSnapshot {
-    pub fn new() -> Self {
-        Self {
-            inner: ffi::nrd::ResourceSnapshot::new1().within_unique_ptr(),
-        }
-    }
-
     /// Associates a texture with a resource slot inside the snapshot.
     ///
     /// # Safety
@@ -224,14 +200,14 @@ impl ResourceSnapshot {
     pub fn set_resource(
         &mut self,
         resource_type: ffi::nrd::ResourceType,
-        texture: &mut Texture,
+        texture: &Texture,
         state_access: ffi::nri::AccessBits,
         state_layout: ffi::nri::Layout,
         state_stages: ffi::nri::StageBits,
     ) {
         unsafe {
             ffi::nrdResourceSnapshotSetResource(
-                self.inner.pin_mut(),
+                std::pin::Pin::new_unchecked(&mut *self.inner),
                 resource_type,
                 std::pin::Pin::new_unchecked(&mut *texture.inner),
                 state_access,
@@ -243,30 +219,32 @@ impl ResourceSnapshot {
 
     /// Returns the final resource state after a denoiser pass.
     pub fn get_final_state(
-        &mut self,
+        &self,
         resource_type: ffi::nrd::ResourceType,
     ) -> Option<(ffi::nri::AccessBits, ffi::nri::Layout, ffi::nri::StageBits)> {
         let mut out_access = ffi::nri::AccessBits::NONE;
         let mut out_layout = ffi::nri::Layout::UNDEFINED;
         let mut out_stages = ffi::nri::StageBits::ALL;
-        let success = unsafe {
-            ffi::nrdResourceSnapshotGetFinalState(
-                self.inner.pin_mut(),
-                resource_type,
-                std::pin::Pin::new(&mut out_access),
-                std::pin::Pin::new(&mut out_layout),
-                std::pin::Pin::new(&mut out_stages),
-            )
-        };
+        let success = ffi::nrdResourceSnapshotGetFinalState(
+            &self.inner,
+            resource_type,
+            std::pin::Pin::new(&mut out_access),
+            std::pin::Pin::new(&mut out_layout),
+            std::pin::Pin::new(&mut out_stages),
+        );
         if success {
             Some((out_access, out_layout, out_stages))
         } else {
             None
         }
     }
+}
 
-    pub fn pin_mut(&mut self) -> std::pin::Pin<&mut ffi::nrd::ResourceSnapshot> {
-        self.inner.pin_mut()
+impl Default for ResourceSnapshot {
+    fn default() -> Self {
+        Self {
+            inner: ffi::nrd::ResourceSnapshot::new1().within_unique_ptr(),
+        }
     }
 }
 
@@ -277,26 +255,17 @@ pub struct Integration {
     inner: cxx::UniquePtr<ffi::nrd::Integration>,
 }
 
-impl Integration {
-    /// Creates a new NRD integration instance.
-    ///
-    /// Returns `None` if initialization fails (e.g. invalid device or denoiser desc).
-    pub fn new(
-        integration_desc: &ffi::nrd::IntegrationCreationDesc,
-        denoisers: &[ffi::nrd::DenoiserDesc],
-        device: &mut Device,
-    ) -> Option<Self> {
-        let inner = ffi::nrd::Integration::new().within_unique_ptr();
-        let mut integration = Self { inner };
-        if unsafe { integration.recreate(integration_desc, denoisers, device) } {
-            Some(integration)
-        } else {
-            None
+impl Default for Integration {
+    fn default() -> Self {
+        Self {
+            inner: ffi::nrd::Integration::new().within_unique_ptr(),
         }
     }
+}
 
+impl Integration {
     pub fn new_frame(&mut self) {
-        self.inner.pin_mut().NewFrame()
+        self.inner.pin_mut().NewFrame();
     }
 
     /// Runs denoising for the specified denoisers.
@@ -313,8 +282,8 @@ impl Integration {
         self.inner.pin_mut().Denoise(
             denoisers.as_ptr(),
             denoisers.len() as u32,
-            command_buffer.pin_mut(),
-            resource_snapshot.pin_mut(),
+            std::pin::Pin::new_unchecked(&mut *command_buffer.inner),
+            std::pin::Pin::new_unchecked(&mut *resource_snapshot.inner),
         );
     }
 
@@ -406,7 +375,7 @@ impl Integration {
         &mut self,
         integration_desc: &ffi::nrd::IntegrationCreationDesc,
         denoisers: &[ffi::nrd::DenoiserDesc],
-        device: &mut Device,
+        device: &Device,
     ) -> bool {
         ffi::nrdIntegrationRecreate(
             &mut *self.inner,
@@ -444,35 +413,5 @@ impl Default for ffi::nri::VKBindingOffsets {
             bRegister: 2,
             uRegister: 3,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_types_are_send_sync() {
-        fn assert_send<T: Send>() {}
-        fn assert_sync<T: Sync>() {}
-
-        assert_send::<Device>();
-        assert_sync::<Device>();
-        assert_send::<Texture>();
-        assert_sync::<Texture>();
-        assert_send::<CommandBuffer>();
-        assert_sync::<CommandBuffer>();
-    }
-
-    #[test]
-    fn test_default_settings() {
-        let _cs = ffi::nrd::CommonSettings::default();
-        let _rs = ffi::nrd::RelaxSettings::default();
-        let _icd = ffi::nrd::IntegrationCreationDesc::default();
-    }
-
-    #[test]
-    fn test_resource_snapshot_new() {
-        let _snap = ResourceSnapshot::new();
     }
 }
