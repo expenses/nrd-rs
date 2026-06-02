@@ -17,6 +17,7 @@ include_cpp! {
     generate!("nrd::Integration")
     generate!("nrd::ResourceSnapshot")
     generate!("nrd::Denoiser")
+    generate!("nrd::ResourceType")
     generate_pod!("nrd::DenoiserDesc")
     generate_pod!("nrd::CommonSettings")
     generate_pod!("nrd::IntegrationCreationDesc")
@@ -52,6 +53,15 @@ pub mod ffi {
     pub use crate::generated::*;
 }
 
+pub use ffi::nrd::{
+    CommonSettings, Denoiser, DenoiserDesc, IntegrationCreationDesc, ReblurAntilagSettings,
+    ReblurConvergenceSettings, ReblurHitDistanceParameters, ReblurResponsiveAccumulationSettings,
+    ReblurSettings, ReferenceSettings, RelaxAntilagSettings, RelaxSettings, ResourceType,
+    SigmaSettings,
+};
+pub use ffi::nri::{AccessBits, Layout, QueueFamilyVKDesc, QueueType, StageBits, VKBindingOffsets};
+pub use ffi::{NrdCommandBufferVKDesc, NrdTextureVKDesc};
+
 /// Wraps an `nri::Device`. NRI devices are thread-safe.
 ///
 /// Must outlive all `Texture`, `CommandBuffer`, and `Integration` instances
@@ -75,7 +85,7 @@ impl Device {
         enable_nri_validation: bool,
         minor_version: u32,
         device_extensions: &[*const i8],
-        binding_offsets: Option<&ffi::nri::VKBindingOffsets>,
+        binding_offsets: ffi::nri::VKBindingOffsets,
     ) -> Option<Self> {
         let ptr = ffi::nrdCreateDeviceVK(
             vk_instance,
@@ -87,7 +97,7 @@ impl Device {
             minor_version,
             device_extensions.as_ptr() as *mut autocxx::c_void,
             device_extensions.len() as u32,
-            binding_offsets.map_or(std::ptr::null(), |b| b),
+            binding_offsets,
         );
         if ptr.is_null() {
             None
@@ -423,6 +433,17 @@ impl Default for ffi::nrd::RelaxSettings {
 impl Default for ffi::nrd::IntegrationCreationDesc {
     fn default() -> Self {
         ffi::nrdDefaultIntegrationCreationDesc()
+    }
+}
+
+impl Default for ffi::nri::VKBindingOffsets {
+    fn default() -> Self {
+        Self {
+            sRegister: 0,
+            tRegister: 1,
+            bRegister: 2,
+            uRegister: 3,
+        }
     }
 }
 

@@ -21,7 +21,7 @@ nri::Device* nrdCreateDeviceVK(
     uint32_t minorVersion,
     void* deviceExtensions,
     uint32_t deviceExtensionNum,
-    const nri::VKBindingOffsets* bindingOffsets
+    nri::VKBindingOffsets bindingOffsets
 );
 
 void nrdDestroyDevice(nri::Device* device);

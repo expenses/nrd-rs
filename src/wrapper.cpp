@@ -18,7 +18,7 @@ nri::Device* nrdCreateDeviceVK(
     uint32_t minorVersion,
     void* deviceExtensions,
     uint32_t deviceExtensionNum,
-    const nri::VKBindingOffsets* bindingOffsets
+    nri::VKBindingOffsets bindingOffsets
 ) {
     nri::Device* device = nullptr;
 
@@ -26,11 +26,7 @@ nri::Device* nrdCreateDeviceVK(
     desc.vkInstance = reinterpret_cast<void*>(vkInstance);
     desc.vkPhysicalDevice = reinterpret_cast<void*>(vkPhysicalDevice);
     desc.vkDevice = reinterpret_cast<void*>(vkDevice);
-    if (bindingOffsets) {
-        desc.vkBindingOffsets = *bindingOffsets;
-    } else {
-        desc.vkBindingOffsets = {0, 1, 2, 3};
-    }
+    desc.vkBindingOffsets = bindingOffsets;
     desc.queueFamilyNum = queueFamilyNum;
     desc.queueFamilies = queueFamilies;
     desc.minorVersion = minorVersion;
