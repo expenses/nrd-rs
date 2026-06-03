@@ -97,4 +97,6 @@ void nrdDestroyCommandBuffer(
 
 nrd::CommonSettings nrdDefaultCommonSettings();
 nrd::RelaxSettings nrdDefaultRelaxSettings();
+nrd::ReblurSettings nrdDefaultReblurSettings();
+nrd::SigmaSettings nrdDefaultSigmaSettings();
 nrd::IntegrationCreationDesc nrdDefaultIntegrationCreationDesc();

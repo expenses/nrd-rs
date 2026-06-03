@@ -190,6 +190,14 @@ nrd::RelaxSettings nrdDefaultRelaxSettings() {
     return {};
 }
 
+nrd::ReblurSettings nrdDefaultReblurSettings() {
+    return {};
+}
+
+nrd::SigmaSettings nrdDefaultSigmaSettings() {
+    return {};
+}
+
 nrd::IntegrationCreationDesc nrdDefaultIntegrationCreationDesc() {
     return {};
 }

@@ -46,6 +46,8 @@ include_cpp! {
     generate!("nrdDestroyCommandBuffer")
     generate!("nrdDefaultCommonSettings")
     generate!("nrdDefaultRelaxSettings")
+    generate!("nrdDefaultReblurSettings")
+    generate!("nrdDefaultSigmaSettings")
     generate!("nrdDefaultIntegrationCreationDesc")
     name!(generated)
 }
@@ -396,6 +398,18 @@ impl Default for ffi::nrd::CommonSettings {
 impl Default for ffi::nrd::RelaxSettings {
     fn default() -> Self {
         ffi::nrdDefaultRelaxSettings()
+    }
+}
+
+impl Default for ffi::nrd::ReblurSettings {
+    fn default() -> Self {
+        ffi::nrdDefaultReblurSettings()
+    }
+}
+
+impl Default for ffi::nrd::SigmaSettings {
+    fn default() -> Self {
+        ffi::nrdDefaultSigmaSettings()
     }
 }
 
