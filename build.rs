@@ -118,20 +118,7 @@ fn find_lib(dir: &std::path::Path, target: &str) -> Option<PathBuf> {
 }
 
 fn build_nrd() -> PathBuf {
-    let mut config = cmake::Config::new("src");
-    config
-        .define("NRD_STATIC_LIBRARY", "ON")
-        .define("NRD_EMBEDS_DXIL_SHADERS", "OFF")
-        .define("NRD_EMBEDS_DXBC_SHADERS", "OFF");
-
-    if cfg!(target_env = "msvc") {
-        config.define(
-            "CMAKE_MSVC_RUNTIME_LIBRARY",
-            "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
-        );
-    }
-
-    let dst = config.build();
+    let dst = cmake::Config::new("src").build();
     let profile = env::var("PROFILE").unwrap_or_else(|_| "Debug".to_string());
     let cap_profile = if profile == "debug" {
         "Debug"

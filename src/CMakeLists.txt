@@ -5,6 +5,17 @@ set(NRD_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 set(NRD_EMBEDS_DXIL_SHADERS OFF CACHE BOOL "" FORCE)
 set(NRD_EMBEDS_DXBC_SHADERS OFF CACHE BOOL "" FORCE)
 
+if(MSVC)
+    # NRI and ShaderMakeBlob use C++ exception handling, and upstream
+    # CMakeLists treat MSVC warnings as errors (/WX).  Without /EHsc,
+    # MSVC emits C4530 ("exception handler used without unwind
+    # semantics"), which becomes a fatal error.
+    add_compile_options(/EHsc)
+
+    # Link the dynamic CRT (/MD in Release, /MDd in Debug).
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../NRD NRD)
 
 set(NRI_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
