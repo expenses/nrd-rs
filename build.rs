@@ -1,48 +1,41 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn canonicalize(path: &std::path::Path) -> String {
+/// Returns a canonicalized UTF-8 absolute path, falling back to the raw path on error.
+fn abs_path(path: &Path) -> String {
     dunce::canonicalize(path)
         .unwrap_or_else(|_| path.to_path_buf())
         .to_str()
-        .expect("Invalid UTF-8 path")
+        .expect("non-UTF-8 path")
         .to_string()
 }
 
 fn main() {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let nrd_include = canonicalize(&manifest_dir.join("NRD/Include"));
-    let nri_include = canonicalize(&manifest_dir.join("NRI/Include"));
-    let nrd_integration_include = canonicalize(&manifest_dir.join("NRD/Integration"));
-    let src_dir = canonicalize(&manifest_dir.join("src"));
+    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=src/wrapper.hpp");
-    println!("cargo:rerun-if-changed=src/wrapper.cpp");
-    println!("cargo:rerun-if-changed=src/CMakeLists.txt");
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_NRD_DEBUG_LOGGING");
-    println!("cargo:rerun-if-env-changed=PROFILE");
+    for f in ["src/lib.rs", "src/wrapper.hpp", "src/wrapper.cpp", "src/CMakeLists.txt"] {
+        println!("cargo:rerun-if-changed={f}");
+    }
+    for v in ["CARGO_FEATURE_NRD_DEBUG_LOGGING", "PROFILE"] {
+        println!("cargo:rerun-if-env-changed={v}");
+    }
 
     let debug_logging = env::var("CARGO_FEATURE_NRD_DEBUG_LOGGING").is_ok();
-
     let nrd_lib_dir = build_nrd();
 
-    // autocxx passes include dirs as -I to clang via Builder::new.
-    let mut autocxx_builder = autocxx_build::Builder::new(
+    let nrd_include     = abs_path(&manifest.join("NRD/Include"));
+    let nri_include     = abs_path(&manifest.join("NRI/Include"));
+    let nrd_integration = abs_path(&manifest.join("NRD/Integration"));
+    let src_dir         = abs_path(&manifest.join("src"));
+
+    let mut autocxx = autocxx_build::Builder::new(
         "src/lib.rs",
-        &[
-            &nrd_include,
-            &nri_include,
-            &nrd_integration_include,
-            &src_dir,
-        ],
+        &[&nrd_include, &nri_include, &nrd_integration, &src_dir],
     );
     if debug_logging {
-        autocxx_builder = autocxx_builder.extra_clang_args(&["-DNRD_INTEGRATION_DEBUG_LOGGING"]);
+        autocxx = autocxx.extra_clang_args(&["-DNRD_INTEGRATION_DEBUG_LOGGING"]);
     }
-    let mut cc_build = autocxx_builder
-        .build()
-        .expect("autocxx code generation failed");
+    let mut cc_build = autocxx.build().expect("autocxx code generation failed");
     if debug_logging {
         cc_build.define("NRD_INTEGRATION_DEBUG_LOGGING", Some("1"));
     }
@@ -51,19 +44,19 @@ fn main() {
         .include(&nrd_include)
         .compile("nrd-autocxx");
 
-    let mut wrapper_build = cc::Build::new();
-    wrapper_build
+    let mut wrapper = cc::Build::new();
+    wrapper
         .cpp(true)
         .flag_if_supported("-std=c++17")
         .flag_if_supported("/std:c++17")
         .include(&nrd_include)
         .include(&nri_include)
-        .include(&nrd_integration_include)
-        .file(manifest_dir.join("src/wrapper.cpp"));
+        .include(&nrd_integration)
+        .file(manifest.join("src/wrapper.cpp"));
     if debug_logging {
-        wrapper_build.define("NRD_INTEGRATION_DEBUG_LOGGING", Some("1"));
+        wrapper.define("NRD_INTEGRATION_DEBUG_LOGGING", Some("1"));
     }
-    wrapper_build.compile("nrd_wrapper");
+    wrapper.compile("nrd_wrapper");
 
     println!("cargo:rustc-link-search=native={}", nrd_lib_dir.display());
     println!("cargo:rustc-link-lib=static=NRD");
@@ -71,55 +64,33 @@ fn main() {
 }
 
 fn build_nrd() -> PathBuf {
-    // Use cargo profile so cmake provides appropriate debug symbols / optimisation level.
-    // CRT is forced to /MD by CMakeLists.txt to match Rust on MSVC.
     let profile = env::var("PROFILE").unwrap_or_default();
-    let cmake_profile = if profile == "release" {
-        "Release"
-    } else {
-        "Debug"
-    };
-    let dst = cmake::Config::new("src").profile(&cmake_profile).build();
+    let cmake_profile = if profile == "release" { "Release" } else { "Debug" };
 
-    let search_subs = [
-        "lib",
-        "lib64",
-        &format!("lib/{cmake_profile}"),
-        &format!("lib64/{cmake_profile}"),
-    ];
+    let dst = cmake::Config::new("src").profile(cmake_profile).build();
 
-    let mut nrd_lib_dir = None;
-    for sub in &search_subs {
-        let candidate = dst.join(sub);
-        if candidate.join("libNRD.a").exists() || candidate.join("NRD.lib").exists() {
-            nrd_lib_dir = Some(candidate);
-            break;
+    // Installed NRD may land in lib/ or lib64/, with or without a config subdirectory.
+    let nrd_lib_dir = ["lib", "lib64"]
+        .into_iter()
+        .flat_map(|base| [dst.join(base), dst.join(base).join(cmake_profile)])
+        .find(|dir| dir.join("libNRD.a").exists() || dir.join("NRD.lib").exists())
+        .unwrap_or_else(|| panic!("libNRD.a / NRD.lib not found under {dst:?}"));
+
+    // NRI sub-libraries are not installed; link from the build tree.
+    let nri_build = dst.join("build/NRI");
+    let nri_build_config = nri_build.join(cmake_profile);
+    for dir in [&nri_build, &nri_build_config] {
+        if dir.exists() {
+            println!("cargo:rustc-link-search=native={}", dir.display());
         }
     }
-    let nrd_lib_dir = nrd_lib_dir.unwrap_or_else(|| {
-        panic!(
-            "libNRD.a / NRD.lib not found under target directory {:?}",
-            dst
-        )
-    });
-
-    // NRI sub-libraries are not installed to lib/; search build/NRI/ instead.
-    let nri_build_dir = dst.join("build").join("NRI");
-    let nri_build_config_dir = nri_build_dir.join(&cmake_profile);
-    if nri_build_dir.exists() {
-        println!("cargo:rustc-link-search=native={}", nri_build_dir.display());
-    }
-    if nri_build_config_dir.exists() {
-        println!("cargo:rustc-link-search=native={}", nri_build_config_dir.display());
-    }
-    for &lib in &["NRI_Shared", "NRI_VK", "NRI_Validation"] {
-        println!("cargo:rustc-link-lib=static={}", lib);
+    for lib in ["NRI_Shared", "NRI_VK", "NRI_Validation"] {
+        println!("cargo:rustc-link-lib=static={lib}");
     }
 
-    // ShaderMakeBlob is pulled in by cmake's FetchContent; path is predictable.
-    let smb_dir = dst.join("build/_deps/shadermake-build").join(&cmake_profile);
-    let smb_files = [format!("libShaderMakeBlob.a"), format!("ShaderMakeBlob.lib")];
-    if smb_files.iter().any(|f| smb_dir.join(f).exists()) {
+    // ShaderMakeBlob is pulled in via CMake FetchContent; its path is predictable.
+    let smb_dir = dst.join("build/_deps/shadermake-build").join(cmake_profile);
+    if ["libShaderMakeBlob.a", "ShaderMakeBlob.lib"].iter().any(|f| smb_dir.join(f).exists()) {
         println!("cargo:rustc-link-search=native={}", smb_dir.display());
         println!("cargo:rustc-link-lib=static=ShaderMakeBlob");
     }
