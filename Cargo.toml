@@ -2,6 +2,9 @@
 name = "nrd"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/expenses/nrd-rs"
+description = "Bindings to the NVIDIA Real-time Denoising (NRD) library high-level integration API"
 
 [dependencies]
 cxx = "1.0"
