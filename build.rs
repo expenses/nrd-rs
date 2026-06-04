@@ -25,13 +25,28 @@ fn main() {
     }
 
     let features: &[(&str, &str)] = &[
-        ("CARGO_FEATURE_DEBUG_LOGGING", "NRD_INTEGRATION_DEBUG_LOGGING"),
-        ("CARGO_FEATURE_VIEWPORT_OFFSET", "NRD_SUPPORTS_VIEWPORT_OFFSET"),
+        (
+            "CARGO_FEATURE_DEBUG_LOGGING",
+            "NRD_INTEGRATION_DEBUG_LOGGING",
+        ),
+        (
+            "CARGO_FEATURE_VIEWPORT_OFFSET",
+            "NRD_SUPPORTS_VIEWPORT_OFFSET",
+        ),
         ("CARGO_FEATURE_CHECKERBOARD", "NRD_SUPPORTS_CHECKERBOARD"),
-        ("CARGO_FEATURE_HISTORY_CONFIDENCE", "NRD_SUPPORTS_HISTORY_CONFIDENCE"),
-        ("CARGO_FEATURE_DISOCCLUSION_THRESHOLD_MIX", "NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX"),
+        (
+            "CARGO_FEATURE_HISTORY_CONFIDENCE",
+            "NRD_SUPPORTS_HISTORY_CONFIDENCE",
+        ),
+        (
+            "CARGO_FEATURE_DISOCCLUSION_THRESHOLD_MIX",
+            "NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX",
+        ),
         ("CARGO_FEATURE_ANTIFIREFLY", "NRD_SUPPORTS_ANTIFIREFLY"),
-        ("CARGO_FEATURE_QUAD_INTRINSICS", "NRD_SUPPORTS_QUAD_INTRINSICS"),
+        (
+            "CARGO_FEATURE_QUAD_INTRINSICS",
+            "NRD_SUPPORTS_QUAD_INTRINSICS",
+        ),
     ];
 
     for &(env_var, _) in features {
@@ -156,20 +171,25 @@ fn build_nrd(nrd_states: &[(&str, bool)], nrd_src: &Path) -> PathBuf {
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == ".git" {
-            continue;
-        }
-        let src_path = entry.path();
-        let dst_path = dst.join(&name);
-        if entry.file_type()?.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
+    let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
+
+    while let Some((src_dir, dst_dir)) = stack.pop() {
+        fs::create_dir_all(&dst_dir)?;
+        for entry in fs::read_dir(&src_dir)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            if name == ".git" {
+                continue;
+            }
+            let src_path = entry.path();
+            let dst_path = dst_dir.join(&name);
+            if entry.file_type()?.is_dir() {
+                stack.push((src_path, dst_path));
+            } else {
+                fs::copy(&src_path, &dst_path)?;
+            }
         }
     }
+
     Ok(())
 }
