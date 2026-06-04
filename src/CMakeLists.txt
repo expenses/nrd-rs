@@ -12,8 +12,8 @@ if(MSVC)
     # semantics"), which becomes a fatal error.
     add_compile_options(/EHsc)
 
-    # Link the dynamic CRT (/MD in Release, /MDd in Debug).
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    # Link the dynamic release CRT (/MD) always, matching Rust on MSVC.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../NRD NRD)
