@@ -8,8 +8,34 @@
 #include "Extensions/NRIHelper.h"
 #include "Extensions/NRIRayTracing.h"
 #include "Extensions/NRIWrapperVK.h"
-#include "NRDIntegration.h"
 #include "NRDSettings.h"
+
+// autocxx uses clang; MSVC compiles wrapper.cpp.
+// NRDIntegration.h includes <map> and <vector>, whose MSVC-internal types
+// (e.g. _Mytree) leak into autocxx's generated Rust code when parsed by
+// clang.  We provide clang with only what it needs to see.
+#ifdef __clang__
+namespace nrd {
+
+struct Integration;
+struct ResourceSnapshot;
+
+struct IntegrationCreationDesc {
+    char name[64];
+    float residencyPriority;
+    uint16_t resourceWidth;
+    uint16_t resourceHeight;
+    uint8_t queuedFrameNum;
+    bool enableWholeLifetimeDescriptorCaching;
+    bool autoWaitForIdle;
+    bool demoteFloat32to16;
+    bool promoteFloat16to32;
+};
+
+} // namespace nrd
+#else
+#include "NRDIntegration.h"
+#endif
 
 nri::Device* nrdCreateDeviceVK(
     uint64_t vkInstance,
@@ -27,20 +53,20 @@ nri::Device* nrdCreateDeviceVK(
 void nrdDestroyDevice(nri::Device* device);
 
 void nrdResourceSnapshotSetResource(
-    nrd::ResourceSnapshot& snapshot,
+    nrd::ResourceSnapshot* snapshot,
     nrd::ResourceType resourceType,
-    nri::Texture& texture,
+    nri::Texture* texture,
     nri::AccessBits stateAccess,
     nri::Layout stateLayout,
     nri::StageBits stateStages
 );
 
 bool nrdResourceSnapshotGetFinalState(
-    const nrd::ResourceSnapshot& snapshot,
+    const nrd::ResourceSnapshot* snapshot,
     nrd::ResourceType resourceType,
-    nri::AccessBits& outAccess,
-    nri::Layout& outLayout,
-    nri::StageBits& outStages
+    nri::AccessBits* outAccess,
+    nri::Layout* outLayout,
+    nri::StageBits* outStages
 );
 
 bool nrdIntegrationSetCommonSettings(
@@ -95,8 +121,30 @@ void nrdDestroyCommandBuffer(
     nri::CommandBuffer* commandBuffer
 );
 
+nrd::Integration* nrdCreateIntegration();
+void nrdDestroyIntegration(nrd::Integration* integration);
+
+nrd::ResourceSnapshot* nrdCreateResourceSnapshot();
+void nrdDestroyResourceSnapshot(nrd::ResourceSnapshot* snapshot);
+
+void nrdIntegrationNewFrame(nrd::Integration* integration);
+
+void nrdIntegrationDenoise(
+    nrd::Integration* integration,
+    const uint32_t* denoisers,
+    uint32_t denoisersNum,
+    nri::CommandBuffer* commandBuffer,
+    nrd::ResourceSnapshot* resourceSnapshot
+);
+
+
+double nrdIntegrationGetTotalMemoryUsageInMb(const nrd::Integration* integration);
+double nrdIntegrationGetPersistentMemoryUsageInMb(const nrd::Integration* integration);
+double nrdIntegrationGetAliasableMemoryUsageInMb(const nrd::Integration* integration);
+
 nrd::CommonSettings nrdDefaultCommonSettings();
 nrd::RelaxSettings nrdDefaultRelaxSettings();
 nrd::ReblurSettings nrdDefaultReblurSettings();
 nrd::SigmaSettings nrdDefaultSigmaSettings();
 nrd::IntegrationCreationDesc nrdDefaultIntegrationCreationDesc();
+

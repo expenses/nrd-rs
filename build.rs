@@ -13,7 +13,12 @@ fn abs_path(path: &Path) -> String {
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    for f in ["src/lib.rs", "src/wrapper.hpp", "src/wrapper.cpp", "src/CMakeLists.txt"] {
+    for f in [
+        "src/lib.rs",
+        "src/wrapper.hpp",
+        "src/wrapper.cpp",
+        "src/CMakeLists.txt",
+    ] {
         println!("cargo:rerun-if-changed={f}");
     }
     for v in ["CARGO_FEATURE_NRD_DEBUG_LOGGING", "PROFILE"] {
@@ -23,10 +28,10 @@ fn main() {
     let debug_logging = env::var("CARGO_FEATURE_NRD_DEBUG_LOGGING").is_ok();
     let nrd_lib_dir = build_nrd();
 
-    let nrd_include     = abs_path(&manifest.join("NRD/Include"));
-    let nri_include     = abs_path(&manifest.join("NRI/Include"));
+    let nrd_include = abs_path(&manifest.join("NRD/Include"));
+    let nri_include = abs_path(&manifest.join("NRI/Include"));
     let nrd_integration = abs_path(&manifest.join("NRD/Integration"));
-    let src_dir         = abs_path(&manifest.join("src"));
+    let src_dir = abs_path(&manifest.join("src"));
 
     let mut autocxx = autocxx_build::Builder::new(
         "src/lib.rs",
@@ -65,7 +70,11 @@ fn main() {
 
 fn build_nrd() -> PathBuf {
     let profile = env::var("PROFILE").unwrap_or_default();
-    let cmake_profile = if profile == "release" { "Release" } else { "Debug" };
+    let cmake_profile = if profile == "release" {
+        "Release"
+    } else {
+        "Debug"
+    };
 
     let dst = cmake::Config::new("src").profile(cmake_profile).build();
 
@@ -90,7 +99,10 @@ fn build_nrd() -> PathBuf {
 
     // ShaderMakeBlob is pulled in via CMake FetchContent; its path is predictable.
     let smb_dir = dst.join("build/_deps/shadermake-build").join(cmake_profile);
-    if ["libShaderMakeBlob.a", "ShaderMakeBlob.lib"].iter().any(|f| smb_dir.join(f).exists()) {
+    if ["libShaderMakeBlob.a", "ShaderMakeBlob.lib"]
+        .iter()
+        .any(|f| smb_dir.join(f).exists())
+    {
         println!("cargo:rustc-link-search=native={}", smb_dir.display());
         println!("cargo:rustc-link-lib=static=ShaderMakeBlob");
     }

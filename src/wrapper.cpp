@@ -46,34 +46,34 @@ void nrdDestroyDevice(nri::Device* device) {
 }
 
 void nrdResourceSnapshotSetResource(
-    nrd::ResourceSnapshot& snapshot,
+    nrd::ResourceSnapshot* snapshot,
     nrd::ResourceType resourceType,
-    nri::Texture& texture,
+    nri::Texture* texture,
     nri::AccessBits stateAccess,
     nri::Layout stateLayout,
     nri::StageBits stateStages
 ) {
     nrd::Resource resource = {};
-    resource.nri.texture = &texture;
+    resource.nri.texture = texture;
     resource.state.access = stateAccess;
     resource.state.layout = stateLayout;
     resource.state.stages = stateStages;
-    snapshot.SetResource(resourceType, resource);
+    snapshot->SetResource(resourceType, resource);
 }
 
 bool nrdResourceSnapshotGetFinalState(
-    const nrd::ResourceSnapshot& snapshot,
+    const nrd::ResourceSnapshot* snapshot,
     nrd::ResourceType resourceType,
-    nri::AccessBits& outAccess,
-    nri::Layout& outLayout,
-    nri::StageBits& outStages
+    nri::AccessBits* outAccess,
+    nri::Layout* outLayout,
+    nri::StageBits* outStages
 ) {
-    nrd::Resource* res = snapshot.slots[(size_t)resourceType];
+    nrd::Resource* res = snapshot->slots[(size_t)resourceType];
     if (!res)
         return false;
-    outAccess = res->state.access;
-    outLayout = res->state.layout;
-    outStages = res->state.stages;
+    *outAccess = res->state.access;
+    *outLayout = res->state.layout;
+    *outStages = res->state.stages;
     return true;
 }
 
@@ -198,6 +198,49 @@ nrd::SigmaSettings nrdDefaultSigmaSettings() {
     return {};
 }
 
+nrd::Integration* nrdCreateIntegration() {
+    return new nrd::Integration();
+}
+
+void nrdDestroyIntegration(nrd::Integration* integration) {
+    delete integration;
+}
+
+nrd::ResourceSnapshot* nrdCreateResourceSnapshot() {
+    return new nrd::ResourceSnapshot();
+}
+
+void nrdDestroyResourceSnapshot(nrd::ResourceSnapshot* snapshot) {
+    delete snapshot;
+}
+
+void nrdIntegrationNewFrame(nrd::Integration* integration) {
+    integration->NewFrame();
+}
+
+void nrdIntegrationDenoise(
+    nrd::Integration* integration,
+    const uint32_t* denoisers,
+    uint32_t denoisersNum,
+    nri::CommandBuffer* commandBuffer,
+    nrd::ResourceSnapshot* resourceSnapshot
+) {
+    integration->Denoise(denoisers, denoisersNum, *commandBuffer, *resourceSnapshot);
+}
+
+double nrdIntegrationGetTotalMemoryUsageInMb(const nrd::Integration* integration) {
+    return integration->GetTotalMemoryUsageInMb();
+}
+
+double nrdIntegrationGetPersistentMemoryUsageInMb(const nrd::Integration* integration) {
+    return integration->GetPersistentMemoryUsageInMb();
+}
+
+double nrdIntegrationGetAliasableMemoryUsageInMb(const nrd::Integration* integration) {
+    return integration->GetAliasableMemoryUsageInMb();
+}
+
 nrd::IntegrationCreationDesc nrdDefaultIntegrationCreationDesc() {
     return {};
 }
+

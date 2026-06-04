@@ -17,6 +17,15 @@ include_cpp! {
     generate!("nrdResourceSnapshotGetFinalState")
     generate!("nrd::Integration")
     generate!("nrd::ResourceSnapshot")
+    generate!("nrdCreateIntegration")
+    generate!("nrdDestroyIntegration")
+    generate!("nrdCreateResourceSnapshot")
+    generate!("nrdDestroyResourceSnapshot")
+    generate!("nrdIntegrationNewFrame")
+    generate!("nrdIntegrationDenoise")
+    generate!("nrdIntegrationGetTotalMemoryUsageInMb")
+    generate!("nrdIntegrationGetPersistentMemoryUsageInMb")
+    generate!("nrdIntegrationGetAliasableMemoryUsageInMb")
     generate!("nrd::Denoiser")
     generate!("nrd::ResourceType")
     generate_pod!("nrd::DenoiserDesc")
@@ -191,8 +200,10 @@ impl Drop for CommandBuffer {
 
 /// A snapshot of NRD resource state at a given moment.
 pub struct ResourceSnapshot {
-    inner: cxx::UniquePtr<ffi::nrd::ResourceSnapshot>,
+    inner: *mut ffi::nrd::ResourceSnapshot,
 }
+
+unsafe impl Send for ResourceSnapshot {}
 
 impl ResourceSnapshot {
     /// Associates a texture with a resource slot inside the snapshot.
@@ -209,9 +220,9 @@ impl ResourceSnapshot {
     ) {
         unsafe {
             ffi::nrdResourceSnapshotSetResource(
-                std::pin::Pin::new_unchecked(&mut *self.inner),
+                self.inner,
                 resource_type,
-                std::pin::Pin::new_unchecked(&mut *texture.inner),
+                texture.inner,
                 state_access,
                 state_layout,
                 state_stages,
@@ -227,13 +238,15 @@ impl ResourceSnapshot {
         let mut out_access = ffi::nri::AccessBits::NONE;
         let mut out_layout = ffi::nri::Layout::UNDEFINED;
         let mut out_stages = ffi::nri::StageBits::ALL;
-        let success = ffi::nrdResourceSnapshotGetFinalState(
-            &self.inner,
-            resource_type,
-            std::pin::Pin::new(&mut out_access),
-            std::pin::Pin::new(&mut out_layout),
-            std::pin::Pin::new(&mut out_stages),
-        );
+        let success = unsafe {
+            ffi::nrdResourceSnapshotGetFinalState(
+                self.inner,
+                resource_type,
+                &mut out_access,
+                &mut out_layout,
+                &mut out_stages,
+            )
+        };
         if success {
             Some((out_access, out_layout, out_stages))
         } else {
@@ -242,10 +255,18 @@ impl ResourceSnapshot {
     }
 }
 
+impl Drop for ResourceSnapshot {
+    fn drop(&mut self) {
+        if !self.inner.is_null() {
+            unsafe { ffi::nrdDestroyResourceSnapshot(self.inner) }
+        }
+    }
+}
+
 impl Default for ResourceSnapshot {
     fn default() -> Self {
         Self {
-            inner: ffi::nrd::ResourceSnapshot::new1().within_unique_ptr(),
+            inner: ffi::nrdCreateResourceSnapshot(),
         }
     }
 }
@@ -254,20 +275,23 @@ impl Default for ResourceSnapshot {
 ///
 /// Manages denoiser pipelines, resources, and dispatch.
 pub struct Integration {
-    inner: cxx::UniquePtr<ffi::nrd::Integration>,
+    inner: *mut ffi::nrd::Integration,
 }
+
+unsafe impl Send for Integration {}
+unsafe impl Sync for Integration {}
 
 impl Default for Integration {
     fn default() -> Self {
         Self {
-            inner: ffi::nrd::Integration::new().within_unique_ptr(),
+            inner: ffi::nrdCreateIntegration(),
         }
     }
 }
 
 impl Integration {
     pub fn new_frame(&mut self) {
-        self.inner.pin_mut().NewFrame();
+        unsafe { ffi::nrdIntegrationNewFrame(self.inner) }
     }
 
     /// Runs denoising for the specified denoisers.
@@ -281,36 +305,25 @@ impl Integration {
         command_buffer: &mut CommandBuffer,
         resource_snapshot: &mut ResourceSnapshot,
     ) {
-        self.inner.pin_mut().Denoise(
+        ffi::nrdIntegrationDenoise(
+            self.inner,
             denoisers.as_ptr(),
             denoisers.len() as u32,
-            std::pin::Pin::new_unchecked(&mut *command_buffer.inner),
-            std::pin::Pin::new_unchecked(&mut *resource_snapshot.inner),
-        );
-    }
-
-    pub fn destroy(&mut self) {
-        self.inner.pin_mut().Destroy()
-    }
-
-    pub fn destroy_cached_descriptors(&mut self) {
-        self.inner.pin_mut().DestroyCachedDescriptors()
-    }
-
-    pub fn recreate_pipelines(&mut self) -> bool {
-        self.inner.pin_mut().RecreatePipelines()
+            command_buffer.inner,
+            resource_snapshot.inner,
+        )
     }
 
     pub fn total_memory_usage_mb(&self) -> f64 {
-        self.inner.GetTotalMemoryUsageInMb()
+        unsafe { ffi::nrdIntegrationGetTotalMemoryUsageInMb(self.inner) }
     }
 
     pub fn persistent_memory_usage_mb(&self) -> f64 {
-        self.inner.GetPersistentMemoryUsageInMb()
+        unsafe { ffi::nrdIntegrationGetPersistentMemoryUsageInMb(self.inner) }
     }
 
     pub fn aliasable_memory_usage_mb(&self) -> f64 {
-        self.inner.GetAliasableMemoryUsageInMb()
+        unsafe { ffi::nrdIntegrationGetAliasableMemoryUsageInMb(self.inner) }
     }
 
     pub fn set_common_settings(&mut self, common_settings: &ffi::nrd::CommonSettings) -> bool {
@@ -380,12 +393,20 @@ impl Integration {
         device: &Device,
     ) -> bool {
         ffi::nrdIntegrationRecreate(
-            &mut *self.inner,
+            self.inner,
             integration_desc,
             denoisers.as_ptr(),
             denoisers.len() as u32,
             device.inner,
         )
+    }
+}
+
+impl Drop for Integration {
+    fn drop(&mut self) {
+        if !self.inner.is_null() {
+            unsafe { ffi::nrdDestroyIntegration(self.inner) }
+        }
     }
 }
 
@@ -432,6 +453,6 @@ impl Default for ffi::nri::VKBindingOffsets {
 
 #[test]
 fn integration_exists() {
-    let _ = super::Integration::default();
-    let _ = super::ResourceSnapshot::default();
+    let _integration = crate::Integration::default();
+    let _snapshot = crate::ResourceSnapshot::default();
 }
