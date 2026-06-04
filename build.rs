@@ -21,28 +21,57 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={f}");
     }
-    for v in ["CARGO_FEATURE_NRD_DEBUG_LOGGING", "PROFILE"] {
-        println!("cargo:rerun-if-env-changed={v}");
-    }
 
-    let debug_logging = env::var("CARGO_FEATURE_NRD_DEBUG_LOGGING").is_ok();
-    let nrd_lib_dir = build_nrd();
+    let features: &[(&str, &str)] = &[
+        ("CARGO_FEATURE_DEBUG_LOGGING", "NRD_INTEGRATION_DEBUG_LOGGING"),
+        ("CARGO_FEATURE_VIEWPORT_OFFSET", "NRD_SUPPORTS_VIEWPORT_OFFSET"),
+        ("CARGO_FEATURE_CHECKERBOARD", "NRD_SUPPORTS_CHECKERBOARD"),
+        ("CARGO_FEATURE_HISTORY_CONFIDENCE", "NRD_SUPPORTS_HISTORY_CONFIDENCE"),
+        ("CARGO_FEATURE_DISOCCLUSION_THRESHOLD_MIX", "NRD_SUPPORTS_DISOCCLUSION_THRESHOLD_MIX"),
+        ("CARGO_FEATURE_ANTIFIREFLY", "NRD_SUPPORTS_ANTIFIREFLY"),
+        ("CARGO_FEATURE_QUAD_INTRINSICS", "NRD_SUPPORTS_QUAD_INTRINSICS"),
+    ];
+
+    for &(env_var, _) in features {
+        println!("cargo:rerun-if-env-changed={env_var}");
+    }
+    println!("cargo:rerun-if-env-changed=PROFILE");
+
+    let all_states: Vec<(&str, bool)> = features
+        .iter()
+        .map(|&(env_var, define)| (define, env::var(env_var).is_ok()))
+        .collect();
+
+    // Only NRD library features (not integration) are passed to CMake.
+    let nrd_states: Vec<(&str, bool)> = all_states
+        .iter()
+        .filter(|(define, _)| !define.starts_with("NRD_INTEGRATION_"))
+        .copied()
+        .collect();
+
+    let nrd_lib_dir = build_nrd(&nrd_states);
 
     let nrd_include = abs_path(&manifest.join("NRD/Include"));
     let nri_include = abs_path(&manifest.join("NRI/Include"));
     let nrd_integration = abs_path(&manifest.join("NRD/Integration"));
     let src_dir = abs_path(&manifest.join("src"));
 
+    // Flatten all define flags into clang -D arguments.
+    let clang_defines: Vec<String> = all_states
+        .iter()
+        .map(|&(define, enabled)| format!("-D{}={}", define, if enabled { 1 } else { 0 }))
+        .collect();
+    let clang_refs: Vec<&str> = clang_defines.iter().map(|s| s.as_str()).collect();
+
     let mut autocxx = autocxx_build::Builder::new(
         "src/lib.rs",
         &[&nrd_include, &nri_include, &nrd_integration, &src_dir],
     );
-    if debug_logging {
-        autocxx = autocxx.extra_clang_args(&["-DNRD_INTEGRATION_DEBUG_LOGGING"]);
-    }
+    autocxx = autocxx.extra_clang_args(&clang_refs);
+
     let mut cc_build = autocxx.build().expect("autocxx code generation failed");
-    if debug_logging {
-        cc_build.define("NRD_INTEGRATION_DEBUG_LOGGING", Some("1"));
+    for &(define, enabled) in &all_states {
+        cc_build.define(define, if enabled { Some("1") } else { Some("0") });
     }
     cc_build
         .flag_if_supported("-std=c++17")
@@ -58,8 +87,8 @@ fn main() {
         .include(&nri_include)
         .include(&nrd_integration)
         .file(manifest.join("src/wrapper.cpp"));
-    if debug_logging {
-        wrapper.define("NRD_INTEGRATION_DEBUG_LOGGING", Some("1"));
+    for &(define, enabled) in &all_states {
+        wrapper.define(define, if enabled { Some("1") } else { Some("0") });
     }
     wrapper.compile("nrd_wrapper");
 
@@ -68,7 +97,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=NRI");
 }
 
-fn build_nrd() -> PathBuf {
+fn build_nrd(nrd_states: &[(&str, bool)]) -> PathBuf {
     let profile = env::var("PROFILE").unwrap_or_default();
     let cmake_profile = if profile == "release" {
         "Release"
@@ -76,7 +105,12 @@ fn build_nrd() -> PathBuf {
         "Debug"
     };
 
-    let dst = cmake::Config::new("src").profile(cmake_profile).build();
+    let mut config = cmake::Config::new("src");
+    config.profile(cmake_profile);
+    for &(define, enabled) in nrd_states {
+        config.define(define, if enabled { "ON" } else { "OFF" });
+    }
+    let dst = config.build();
 
     // Installed NRD may land in lib/ or lib64/, with or without a config subdirectory.
     let nrd_lib_dir = ["lib", "lib64"]

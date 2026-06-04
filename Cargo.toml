@@ -14,4 +14,18 @@ cmake = "0.1"
 dunce = "1.0"
 
 [features]
-nrd-debug-logging = []
+debug-logging = []
+viewport-offset = []
+checkerboard = []
+history-confidence = []
+disocclusion-threshold-mix = []
+antifirefly = []
+quad-intrinsics = []
+
+default = [
+    "checkerboard",
+    "history-confidence",
+    "disocclusion-threshold-mix",
+    "antifirefly",
+    "quad-intrinsics",
+]
