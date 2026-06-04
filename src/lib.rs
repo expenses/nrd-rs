@@ -429,3 +429,9 @@ impl Default for ffi::nri::VKBindingOffsets {
         }
     }
 }
+
+#[test]
+fn integration_exists() {
+    let _ = super::Integration::default();
+    let _ = super::ResourceSnapshot::default();
+}
