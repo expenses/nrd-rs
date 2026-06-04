@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Returns a canonicalized UTF-8 absolute path, falling back to the raw path on error.
@@ -12,6 +13,7 @@ fn abs_path(path: &Path) -> String {
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     for f in [
         "src/lib.rs",
@@ -49,7 +51,15 @@ fn main() {
         .copied()
         .collect();
 
-    let nrd_lib_dir = build_nrd(&nrd_states);
+    // Copy NRD source tree to OUT_DIR so CMake's file generation
+    // (NRDConfig.hlsli, _Shaders/*.cs.spirv.h) doesn't modify the source tree.
+    let nrd_src = out.join("nrd-src");
+    if !nrd_src.exists() {
+        copy_dir_all(&manifest.join("NRD"), &nrd_src)
+            .unwrap_or_else(|e| panic!("failed to copy NRD to OUT_DIR: {e}"));
+    }
+
+    let nrd_lib_dir = build_nrd(&nrd_states, &nrd_src);
 
     let nrd_include = abs_path(&manifest.join("NRD/Include"));
     let nri_include = abs_path(&manifest.join("NRI/Include"));
@@ -97,7 +107,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=NRI");
 }
 
-fn build_nrd(nrd_states: &[(&str, bool)]) -> PathBuf {
+fn build_nrd(nrd_states: &[(&str, bool)], nrd_src: &Path) -> PathBuf {
     let profile = env::var("PROFILE").unwrap_or_default();
     let cmake_profile = if profile == "release" {
         "Release"
@@ -106,6 +116,7 @@ fn build_nrd(nrd_states: &[(&str, bool)]) -> PathBuf {
     };
 
     let mut config = cmake::Config::new("src");
+    config.define("NRD_SOURCE_DIR", nrd_src);
     config.profile(cmake_profile);
     for &(define, enabled) in nrd_states {
         config.define(define, if enabled { "ON" } else { "OFF" });
@@ -142,4 +153,23 @@ fn build_nrd(nrd_states: &[(&str, bool)]) -> PathBuf {
     }
 
     nrd_lib_dir
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == ".git" {
+            continue;
+        }
+        let src_path = entry.path();
+        let dst_path = dst.join(&name);
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
