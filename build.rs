@@ -148,23 +148,15 @@ fn build_nrd(nrd_states: &[(&str, bool)], nrd_src: &Path) -> PathBuf {
     // NRI sub-libraries are not installed; link from the build tree.
     let nri_build = dst.join("build/NRI");
     let nri_build_config = nri_build.join(cmake_profile);
-    for dir in [&nri_build, &nri_build_config] {
-        if dir.exists() {
-            println!("cargo:rustc-link-search=native={}", dir.display());
-        }
+    for dir in [
+        &nri_build,
+        &nri_build_config,
+        &dst.join("build/_deps/shadermake-build"),
+    ] {
+        println!("cargo:rustc-link-search=native={}", dir.display());
     }
-    for lib in ["NRI_Shared", "NRI_VK", "NRI_Validation"] {
+    for lib in ["NRI_Shared", "NRI_VK", "NRI_Validation", "ShaderMakeBlob"] {
         println!("cargo:rustc-link-lib=static={lib}");
-    }
-
-    // ShaderMakeBlob is pulled in via CMake FetchContent; its path is predictable.
-    let smb_dir = dst.join("build/_deps/shadermake-build").join(cmake_profile);
-    if ["libShaderMakeBlob.a", "ShaderMakeBlob.lib"]
-        .iter()
-        .any(|f| smb_dir.join(f).exists())
-    {
-        println!("cargo:rustc-link-search=native={}", smb_dir.display());
-        println!("cargo:rustc-link-lib=static=ShaderMakeBlob");
     }
 
     nrd_lib_dir
