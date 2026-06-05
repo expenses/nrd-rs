@@ -148,10 +148,13 @@ fn build_nrd(nrd_states: &[(&str, bool)], nrd_src: &Path) -> PathBuf {
     // NRI sub-libraries are not installed; link from the build tree.
     let nri_build = dst.join("build/NRI");
     let nri_build_config = nri_build.join(cmake_profile);
+    let shadermake_build = dst.join("build/_deps/shadermake-build");
+    let shadermake_build_config = shadermake_build.join(cmake_profile);
     for dir in [
         &nri_build,
         &nri_build_config,
-        &dst.join("build/_deps/shadermake-build"),
+        &shadermake_build,
+        &shadermake_build_config,
     ] {
         println!("cargo:rustc-link-search=native={}", dir.display());
     }
